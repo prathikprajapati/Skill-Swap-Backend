@@ -17,6 +17,8 @@ model User {
   name              String
   avatar            String?
   profile_completion Int     @default(0)
+  xp                Int      @default(0)
+  is_verified       Boolean  @default(false)
   created_at        DateTime @default(now())
   updated_at        DateTime @updatedAt
 
@@ -27,6 +29,12 @@ model User {
   user1_matches     Match[] @relation("User1Matches")
   user2_matches     Match[] @relation("User2Matches")
   sent_messages     Message[] @relation("SentMessages")
+  xp_transactions   XPTransaction[]
+  streak            Streak?
+  sessions_as_teacher Session[] @relation("TeacherSessions")
+  sessions_as_learner Session[] @relation("LearnerSessions")
+  ratings_received  Rating[] @relation("RatedUser")
+  ratings_given     Rating[] @relation("RaterUser")
 
   @@map("users")
 }
@@ -105,6 +113,67 @@ model Message {
   @@map("messages")
 }
 
+model Streak {
+  id                String   @id @default(uuid())
+  user_id           String   @unique
+  current_streak    Int      @default(0)
+  longest_streak    Int      @default(0)
+  last_active_date  DateTime @default(now())
+
+  // Relations
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@map("streaks")
+}
+
+model XPTransaction {
+  id          String   @id @default(uuid())
+  user_id     String
+  amount      Int
+  action      String
+  description String?
+  created_at  DateTime @default(now())
+
+  // Relations
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@map("xp_transactions")
+}
+
+model Session {
+  id          String   @id @default(uuid())
+  teacher_id  String
+  learner_id  String
+  skill_id    String?
+  status      SessionStatus @default(scheduled)
+  scheduled_at DateTime?
+  completed_at DateTime?
+  created_at  DateTime @default(now())
+
+  // Relations
+  teacher User @relation("TeacherSessions", fields: [teacher_id], references: [id], onDelete: Cascade)
+  learner User @relation("LearnerSessions", fields: [learner_id], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+model Rating {
+  id          String   @id @default(uuid())
+  rated_user_id String
+  rater_user_id String
+  session_id  String?
+  rating      Int
+  comment     String?
+  created_at  DateTime @default(now())
+
+  // Relations
+  ratedUser User @relation("RatedUser", fields: [rated_user_id], references: [id], onDelete: Cascade)
+  raterUser User @relation("RaterUser", fields: [rater_user_id], references: [id], onDelete: Cascade)
+
+  @@unique([rated_user_id, rater_user_id, session_id])
+  @@map("ratings")
+}
+
 enum SkillType {
   offer
   want
@@ -120,4 +189,11 @@ enum RequestStatus {
   pending
   accepted
   rejected
+}
+
+enum SessionStatus {
+  scheduled
+  in_progress
+  completed
+  cancelled
 }

@@ -1,10 +1,11 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { Button } from "@/app/components/ui/skill-swap-button";
-import { Send, Paperclip, Calendar, Clock, Check, CheckCheck, MoreVertical, Phone, Video, ChevronLeft, Loader2 } from "lucide-react";
+import { Send, Paperclip, Calendar, Clock, Check, CheckCheck, MoreVertical, Phone, Video, ChevronLeft, Loader2, Wifi, WifiOff } from "lucide-react";
 import { useToast } from "@/app/components/ui/Toast";
 import { matchesApi, type Match } from "@/app/api/matches";
 import { messagesApi, type Message } from "@/app/api/messages";
 import { useAuth } from "@/app/contexts/AuthContext";
+import { useSocket } from "@/app/hooks/useSocket";
 
 export function ChatPage() {
   const [selectedMatchId, setSelectedMatchId] = useState<string | null>(null);
@@ -14,9 +15,14 @@ export function ChatPage() {
   const [showTemplates, setShowTemplates] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isSending, setIsSending] = useState(false);
+  const [isTyping, setIsTyping] = useState(false);
+  const [otherUserTyping, setOtherUserTyping] = useState(false);
+  const [otherUserOnline, setOtherUserOnline] = useState(false);
+  const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const { showToast } = useToast();
   const { user } = useAuth();
+  const { socket, isConnected, joinMatch, leaveMatch, sendMessage, sendTyping, markMessageAsRead } = useSocket();
 
   const selectedMatch = matches.find((m) => m.id === selectedMatchId) || matches[0];
   const otherUser = selectedMatch?.otherUser;
@@ -50,13 +56,99 @@ export function ChatPage() {
       try {
         const data = await messagesApi.getByMatchId(selectedMatchId);
         setMessages(data);
+        
+        // Mark unread messages as read
+        data.forEach((msg) => {
+          if (!msg.is_read && msg.sender_id !== user?.id) {
+            markMessageAsRead(msg.id, selectedMatchId);
+          }
+        });
       } catch (err) {
         console.error("Failed to fetch messages:", err);
       }
     };
 
     fetchMessages();
-  }, [selectedMatchId]);
+  }, [selectedMatchId, user?.id, markMessageAsRead]);
+
+  // Join match room when selected match changes
+  useEffect(() => {
+    if (!selectedMatchId || !socket) return;
+
+    joinMatch(selectedMatchId);
+
+    // Set up WebSocket event listeners
+    socket.on("new_message", (message: Message) => {
+      setMessages((prev) => {
+        // Check if message already exists
+        if (prev.find((m) => m.id === message.id)) return prev;
+        return [...prev, message];
+      });
+      
+      // Mark message as read if from other user
+      if (message.sender_id !== user?.id) {
+        markMessageAsRead(message.id, selectedMatchId);
+      }
+    });
+
+    socket.on("message_sent", ({ messageId, tempId }: { messageId: string; tempId?: string }) => {
+      // Update temp message with real ID
+      setMessages((prev) =>
+        prev.map((msg) =>
+          msg.id === tempId ? { ...msg, id: messageId } : msg
+        )
+      );
+    });
+
+    socket.on("message_read", ({ messageId }: { messageId: string }) => {
+      setMessages((prev) =>
+        prev.map((msg) =>
+          msg.id === messageId ? { ...msg, is_read: true } : msg
+        )
+      );
+    });
+
+    socket.on("typing", ({ userId, isTyping }: { userId: string; isTyping: boolean }) => {
+      if (userId !== user?.id) {
+        setOtherUserTyping(isTyping);
+      }
+    });
+
+    socket.on("user_status", ({ userId, isOnline }: { userId: string; isOnline: boolean }) => {
+      if (userId === otherUser?.id) {
+        setOtherUserOnline(isOnline);
+      }
+    });
+
+    socket.on("user_joined", ({ userId }: { userId: string }) => {
+      if (userId === otherUser?.id) {
+        setOtherUserOnline(true);
+      }
+    });
+
+    socket.on("user_left", ({ userId }: { userId: string }) => {
+      if (userId === otherUser?.id) {
+        setOtherUserOnline(false);
+      }
+    });
+
+    socket.on("error", ({ message }: { message: string }) => {
+      console.error("Socket error:", message);
+      showToast("error", message);
+    });
+
+    return () => {
+      leaveMatch(selectedMatchId);
+      socket.off("new_message");
+      socket.off("message_sent");
+      socket.off("message_read");
+      socket.off("typing");
+      socket.off("user_status");
+      socket.off("user_joined");
+      socket.off("user_left");
+      socket.off("error");
+    };
+  }, [selectedMatchId, socket, joinMatch, leaveMatch, user?.id, otherUser?.id, markMessageAsRead, showToast]);
 
   // Auto-scroll to bottom
   useEffect(() => {
@@ -66,23 +158,75 @@ export function ChatPage() {
   const handleSendMessage = async () => {
     if (!messageInput.trim() || !selectedMatchId) return;
 
+    const tempId = `temp-${Date.now()}`;
+    const content = messageInput.trim();
+    
     setIsSending(true);
+    
+    // Optimistically add message to UI
+    const tempMessage: Message = {
+      id: tempId,
+      match_id: selectedMatchId,
+      sender_id: user?.id || "",
+      content: content,
+      is_read: false,
+      created_at: new Date().toISOString(),
+      sender: {
+        id: user?.id || "",
+        name: user?.name || "",
+        avatar: user?.avatar || "",
+      },
+    };
+    
+    setMessages((prev) => [...prev, tempMessage]);
+    setMessageInput("");
+    setIsTyping(false);
+
     try {
-      await messagesApi.send({
-        match_id: selectedMatchId,
-        content: messageInput,
-      });
-      
-      // Refresh messages after sending
-      const updatedMessages = await messagesApi.getByMatchId(selectedMatchId);
-      setMessages(updatedMessages);
-      setMessageInput("");
+      if (isConnected && socket) {
+        // Send via WebSocket
+        sendMessage(selectedMatchId, content, tempId);
+      } else {
+        // Fallback to HTTP API
+        await messagesApi.send({
+          match_id: selectedMatchId,
+          content: content,
+        });
+        // Refresh messages
+        const updatedMessages = await messagesApi.getByMatchId(selectedMatchId);
+        setMessages(updatedMessages);
+      }
     } catch (err) {
       console.error("Failed to send message:", err);
       showToast("error", "Failed to send message");
+      // Remove temp message on error
+      setMessages((prev) => prev.filter((m) => m.id !== tempId));
     } finally {
       setIsSending(false);
     }
+  };
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setMessageInput(e.target.value);
+    
+    // Send typing indicator
+    if (!isTyping && selectedMatchId && isConnected) {
+      setIsTyping(true);
+      sendTyping(selectedMatchId, true);
+    }
+    
+    // Clear previous timeout
+    if (typingTimeoutRef.current) {
+      clearTimeout(typingTimeoutRef.current);
+    }
+    
+    // Stop typing after 2 seconds of inactivity
+    typingTimeoutRef.current = setTimeout(() => {
+      setIsTyping(false);
+      if (selectedMatchId && isConnected) {
+        sendTyping(selectedMatchId, false);
+      }
+    }, 2000);
   };
 
   const handleTemplateClick = (template: string) => {
@@ -227,9 +371,25 @@ export function ChatPage() {
               <h3 className="font-semibold" style={{ color: '#E0E0E0', fontWeight: 500 }}>
                 {otherUser?.name || 'Unknown'}
               </h3>
-              <p className="text-xs" style={{ color: '#757575' }}>
-                Active match
-              </p>
+              <div className="flex items-center gap-2">
+                {otherUserOnline ? (
+                  <>
+                    <div className="w-2 h-2 rounded-full bg-green-500" />
+                    <span className="text-xs text-green-500">Online</span>
+                  </>
+                ) : (
+                  <>
+                    <div className="w-2 h-2 rounded-full bg-gray-500" />
+                    <span className="text-xs text-gray-500">Offline</span>
+                  </>
+                )}
+                {!isConnected && (
+                  <span className="text-xs text-orange-500 flex items-center gap-1">
+                    <WifiOff className="w-3 h-3" />
+                    Reconnecting...
+                  </span>
+                )}
+              </div>
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -318,6 +478,21 @@ export function ChatPage() {
               </div>
             </div>
           ))}
+          
+          {/* Typing Indicator */}
+          {otherUserTyping && (
+            <div className="flex justify-start">
+              <div className="flex items-center gap-2 px-4 py-2 rounded-2xl rounded-bl-md" style={{ backgroundColor: '#2D2D2D' }}>
+                <div className="flex gap-1">
+                  <span className="w-2 h-2 rounded-full bg-gray-400 animate-bounce" style={{ animationDelay: '0ms' }} />
+                  <span className="w-2 h-2 rounded-full bg-gray-400 animate-bounce" style={{ animationDelay: '150ms' }} />
+                  <span className="w-2 h-2 rounded-full bg-gray-400 animate-bounce" style={{ animationDelay: '300ms' }} />
+                </div>
+                <span className="text-xs" style={{ color: '#757575' }}>{otherUser?.name} is typing...</span>
+              </div>
+            </div>
+          )}
+          
           <div ref={messagesEndRef} />
         </div>
 
@@ -370,7 +545,7 @@ export function ChatPage() {
               <input
                 type="text"
                 value={messageInput}
-                onChange={(e) => setMessageInput(e.target.value)}
+                onChange={handleInputChange}
                 onKeyDown={(e) => e.key === "Enter" && handleSendMessage()}
                 placeholder={`Plan your session with ${otherUser?.name || 'them'}...`}
                 className="w-full px-4 py-2.5 rounded-xl border text-sm outline-none focus:ring-2 focus:ring-[var(--accent-indigo)]/30 transition-all"

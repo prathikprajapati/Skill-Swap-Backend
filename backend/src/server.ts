@@ -3,16 +3,21 @@ import cors from "cors";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
 import dotenv from "dotenv";
+import { createServer } from "http";
 import authRoutes from "./routes/auth";
 import userRoutes from "./routes/users";
 import skillsRoutes from "./routes/skills";
 import matchesRoutes, { messagesRouter } from "./routes/matches";
 import requestsRoutes from "./routes/requests";
 import messagesRoutes from "./routes/messages";
+import gamificationRoutes from "./routes/gamification";
+
+import { initializeSocket } from "./socket";
 
 dotenv.config();
 
 const app = express();
+const httpServer = createServer(app);
 const PORT = process.env.PORT || 3000;
 
 // Security: Helmet middleware for security headers
@@ -110,6 +115,7 @@ app.use("/skills", skillsRoutes);
 app.use("/matches", matchesRoutes);
 app.use("/requests", requestsRoutes);
 app.use("/messages", messagesRouter);
+app.use("/gamification", gamificationRoutes);
 
 // Security: HTTPS enforcement for production
 if (process.env.NODE_ENV === "production") {
@@ -144,11 +150,16 @@ app.use(
   },
 );
 
+// Initialize WebSocket server
+const io = initializeSocket(httpServer);
+
 // Start server
-app.listen(PORT, () => {
+httpServer.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
   console.log(`📍 Environment: ${process.env.NODE_ENV || "development"}`);
   console.log(`🔒 Security: Helmet, Rate Limiting, Input Sanitization enabled`);
+  console.log(`🔌 WebSocket: Socket.io initialized`);
 });
 
 export default app;
+export { httpServer, io };

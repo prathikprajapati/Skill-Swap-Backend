@@ -5,7 +5,11 @@
   "type": "module",
   "scripts": {
     "build": "vite build",
-    "dev": "vite"
+    "dev": "vite",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
+    "test:e2e:debug": "playwright test --debug",
+    "test:e2e:report": "playwright show-report"
   },
   "dependencies": {
     "@emotion/react": "11.14.0",
@@ -65,11 +69,13 @@
     "react-router": "^7.13.0",
     "react-slick": "0.31.0",
     "recharts": "2.15.2",
+    "socket.io-client": "^4.8.3",
     "sonner": "2.0.3",
     "tailwind-merge": "^3.2.0",
     "vaul": "1.1.2"
   },
   "devDependencies": {
+    "@playwright/test": "^1.58.2",
     "@tailwindcss/vite": "4.1.12",
     "@vitejs/plugin-react": "4.7.0",
     "shadcn": "^3.8.4",

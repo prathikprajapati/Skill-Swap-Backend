@@ -5,34 +5,41 @@ import { useTheme, themes, type ThemeType } from "@/app/contexts/ThemeContext";
 import { useAuth } from "@/app/contexts/AuthContext";
 import { skillsApi, type Skill } from "@/app/api/skills";
 import { usersApi, type UserSkill } from "@/app/api/users";
+import { gamificationApi, type GamificationData, type Achievement } from "@/app/api/gamification";
 import { Loader2 } from "lucide-react";
 import { 
   X, Award, Target, Plus, CheckCircle, Sparkles, 
   Zap, Heart, Star, Trophy, Flame, TrendingUp, 
   Camera, Edit3, Share2, MessageCircle, Moon, Sun, 
   Cloud, Palette, Sparkle, Rainbow, Ghost, Coffee,
-  Check
+  Check, Users, GraduationCap, Calendar, Crown
 } from "lucide-react";
 import MagicBento from "@/app/components/ui/MagicBento";
 
-// Gamification levels
+// Gamification levels - now fetched from backend
 const getLevelInfo = (xp: number) => {
-  if (xp < 100) return { level: 1, title: "Novice", nextLevel: 100, color: "#64748b" };
-  if (xp < 300) return { level: 2, title: "Apprentice", nextLevel: 300, color: "#10b981" };
-  if (xp < 600) return { level: 3, title: "Practitioner", nextLevel: 600, color: "#3b82f6" };
-  if (xp < 1000) return { level: 4, title: "Expert", nextLevel: 1000, color: "#8b5cf6" };
-  return { level: 5, title: "Master", nextLevel: 2000, color: "#f59e0b" };
+  if (xp < 100) return { level: 1, title: "Novice", nextLevel: 100, nextLevelXP: 100, color: "#64748b", progress: (xp / 100) * 100 };
+  if (xp < 300) return { level: 2, title: "Apprentice", nextLevel: 300, nextLevelXP: 300, color: "#10b981", progress: ((xp - 100) / 200) * 100 };
+  if (xp < 600) return { level: 3, title: "Practitioner", nextLevel: 600, nextLevelXP: 600, color: "#3b82f6", progress: ((xp - 300) / 300) * 100 };
+  if (xp < 1000) return { level: 4, title: "Expert", nextLevel: 1000, nextLevelXP: 1000, color: "#8b5cf6", progress: ((xp - 600) / 400) * 100 };
+  return { level: 5, title: "Master", nextLevel: 2000, nextLevelXP: 2000, color: "#f59e0b", progress: Math.min(((xp - 1000) / 1000) * 100, 100) };
 };
 
-// Achievements data
-const achievements = [
-  { id: 1, icon: Flame, title: "7-Day Streak", desc: "Active for 7 days straight", unlocked: true, color: "#f97316" },
-  { id: 2, icon: Heart, title: "First Match", desc: "Found your first skill partner", unlocked: true, color: "#ec4899" },
-  { id: 3, icon: Trophy, title: "Skill Master", desc: "Taught 5 skills to others", unlocked: false, color: "#eab308" },
-  { id: 4, icon: Star, title: "Top Rated", desc: "Maintained 4.8+ rating", unlocked: true, color: "#6366f1" },
-  { id: 5, icon: Zap, title: "Quick Learner", desc: "Learned 3 skills in a month", unlocked: false, color: "#06b6d4" },
-  { id: 6, icon: CheckCircle, title: "Trusted", desc: "Verified profile completed", unlocked: true, color: "#10b981" },
-];
+// Icon mapping for achievements
+const iconMap: Record<string, React.ElementType> = {
+  Flame,
+  Heart,
+  Trophy,
+  Star,
+  Zap,
+  CheckCircle,
+  Target,
+  Award,
+  Users,
+  GraduationCap,
+  Calendar,
+  Crown,
+};
 
 // Theme cards data with icons
 const allThemes: { id: ThemeType; icon: typeof Sun; bg: string; isDark: boolean }[] = [
@@ -62,19 +69,22 @@ export function ProfilePage() {
   const [isEditing, setIsEditing] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [gamificationData, setGamificationData] = useState<GamificationData | null>(null);
 
   // Fetch user data and skills on mount
   useEffect(() => {
     const fetchData = async () => {
       try {
         setIsLoading(true);
-        const [userData, skillsData] = await Promise.all([
+        const [userData, skillsData, gamification] = await Promise.all([
           usersApi.getMe(),
           skillsApi.getAll(),
+          gamificationApi.getStats(),
         ]);
         setOfferedSkills(userData.offeredSkills || []);
         setWantedSkills(userData.wantedSkills || []);
         setAllSkills(skillsData);
+        setGamificationData(gamification);
         setError(null);
       } catch (err) {
         console.error("Failed to fetch profile data:", err);
@@ -87,13 +97,28 @@ export function ProfilePage() {
     fetchData();
   }, []);
 
-  // Calculate XP based on activity
-  const userXP = useMemo(() => {
-    return (offeredSkills.length * 50) + (wantedSkills.length * 30) + 340;
-  }, [offeredSkills, wantedSkills]);
+  // Update streak when user is active
+  useEffect(() => {
+    const updateUserStreak = async () => {
+      try {
+        await gamificationApi.updateStreak();
+      } catch (err) {
+        console.error("Failed to update streak:", err);
+      }
+    };
 
-  const levelInfo = getLevelInfo(userXP);
-  const xpProgress = ((userXP % (levelInfo.nextLevel / 2)) / (levelInfo.nextLevel / 2)) * 100;
+    if (!isLoading) {
+      updateUserStreak();
+    }
+  }, [isLoading]);
+
+  // Use real gamification data from backend
+  const userXP = gamificationData?.xp || 0;
+  const levelInfo = gamificationData?.level || getLevelInfo(0);
+  const xpProgress = levelInfo.progress || 0;
+  const nextLevelXP = levelInfo.nextLevelXP || 0;
+  const achievements = gamificationData?.achievements || [];
+  const streak = gamificationData?.streak || { current: 0, longest: 0, lastActive: null };
 
   const handleRemoveSkill = async (skillId: string, type: "offer" | "want") => {
     try {
@@ -150,14 +175,14 @@ export function ProfilePage() {
     }
   };
 
-  // Profile stats for MagicBento - Action-oriented milestones
+  // Profile stats for MagicBento - Action-oriented milestones with real data
   const profileStats = [
     { color: '#1e1b4b', title: 'Teaching', description: `${offeredSkills.length} skills shared`, label: 'Teaching' },
     { color: '#1e1b4b', title: 'Learning', description: `${wantedSkills.length} goals set`, label: 'Growth' },
-    { color: '#1e1b4b', title: `Level ${levelInfo.level}`, description: `${userXP}/${levelInfo.nextLevel} XP`, label: 'XP' },
-    { color: '#1e1b4b', title: '12 Day Streak', description: 'Keep it up! 🔥', label: 'Streak' },
-    { color: '#1e1b4b', title: '4.9 Rating', description: 'Top 10% rated', label: 'Stars' },
-    { color: '#1e1b4b', title: '23 Swaps', description: 'Completed sessions', label: 'Done' }
+    { color: '#1e1b4b', title: `Level ${levelInfo.level}`, description: `${userXP}/${nextLevelXP || '∞'} XP`, label: 'XP' },
+    { color: '#1e1b4b', title: `${streak.current} Day Streak`, description: streak.current > 0 ? 'Keep it up! 🔥' : 'Start your streak!', label: 'Streak' },
+    { color: '#1e1b4b', title: `${gamificationData?.stats.averageRating.toFixed(1) || '0.0'} Rating`, description: `${gamificationData?.stats.totalRatings || 0} reviews`, label: 'Stars' },
+    { color: '#1e1b4b', title: `${gamificationData?.stats.completedSessions || 0} Swaps`, description: 'Completed sessions', label: 'Done' }
   ];
 
   if (isLoading) {
@@ -244,7 +269,7 @@ export function ProfilePage() {
               <div className="flex-1">
                 <div className="flex justify-between text-sm mb-1">
                   <span className="font-medium" style={{ color: '#FFFFFF' }}>{levelInfo.title}</span>
-                  <span style={{ color: 'rgba(255,255,255,0.7)' }}>{userXP} / {levelInfo.nextLevel} XP</span>
+                  <span style={{ color: 'rgba(255,255,255,0.7)' }}>{userXP} / {nextLevelXP} XP</span>
                 </div>
                 <div className="h-2 rounded-full overflow-hidden" style={{ backgroundColor: 'rgba(0,0,0,0.3)' }}>
                   <div 
@@ -505,14 +530,15 @@ export function ProfilePage() {
         </div>
       </div>
 
-      {/* Achievements - Full Width with tooltips */}
+        {/* Achievements - Full Width with tooltips */}
       <div className="mb-8">
         <h2 className="text-xl font-semibold mb-4" style={{ color: '#E0E0E0', fontWeight: 500 }}>
-          Achievements
+          Achievements ({achievements.filter(a => a.unlocked).length}/{achievements.length})
         </h2>
         <div className="grid grid-cols-6 gap-3">
-          {achievements.map((achievement) => {
-            const Icon = achievement.icon;
+          {achievements.map((achievement: Achievement) => {
+            const Icon = iconMap[achievement.icon] || Star;
+            const achievementColor = achievement.unlocked ? "#10b981" : "#6b7280";
             return (
               <div 
                 key={achievement.id}
@@ -522,32 +548,33 @@ export function ProfilePage() {
                     : 'opacity-50 grayscale'
                 }`}
                 style={{
-                  backgroundColor: achievement.unlocked ? achievement.color + '10' : 'var(--section-bg)',
-                  borderColor: achievement.unlocked ? achievement.color + '40' : '#2D2D2D',
+                  backgroundColor: achievement.unlocked ? achievementColor + '10' : 'var(--section-bg)',
+                  borderColor: achievement.unlocked ? achievementColor + '40' : '#2D2D2D',
                   borderRadius: '8px',
                 }}
-                title={`${achievement.title}: ${achievement.desc}`}
+                title={`${achievement.title}: ${achievement.description}`}
               >
                 <div 
                   className="w-10 h-10 rounded-lg flex items-center justify-center mb-2"
-                  style={{ backgroundColor: achievement.unlocked ? achievement.color + '20' : 'var(--secondary)' }}
+                  style={{ backgroundColor: achievement.unlocked ? achievementColor + '20' : 'var(--secondary)' }}
                 >
-                  <Icon className="w-5 h-5" style={{ color: achievement.unlocked ? achievement.color : 'var(--text-disabled)' }} />
+                  <Icon className="w-5 h-5" style={{ color: achievement.unlocked ? achievementColor : 'var(--text-disabled)' }} />
                 </div>
                 <p className="text-xs font-medium" style={{ color: '#E0E0E0', fontWeight: 500 }}>
                   {achievement.title}
                 </p>
                 <p className="text-[10px] mt-1" style={{ color: '#BDBDBD' }}>
-                  {achievement.desc}
+                  {achievement.description}
                 </p>
                 {achievement.unlocked && (
-                  <div className="absolute top-2 right-2 w-2 h-2 rounded-full" style={{ backgroundColor: achievement.color }} />
+                  <div className="absolute top-2 right-2 w-2 h-2 rounded-full" style={{ backgroundColor: achievementColor }} />
                 )}
               </div>
             );
           })}
         </div>
       </div>
+
 
       {/* Theme Cards - Grid Layout */}
       <div className="mb-2">
@@ -605,6 +632,14 @@ export function ProfilePage() {
         <div className="fixed bottom-8 right-8 px-6 py-4 rounded-xl shadow-2xl animate-in slide-in-from-bottom-4 fade-in flex items-center gap-3 z-50 bg-gradient-to-r from-green-500 to-emerald-500 text-white">
           <CheckCircle className="w-5 h-5" />
           <span className="font-medium">Skill added! +50 XP 🎉</span>
+        </div>
+      )}
+
+      {/* XP Notification for Level Up */}
+      {gamificationData && gamificationData.level.progress === 0 && gamificationData.xp > 0 && (
+        <div className="fixed bottom-8 right-8 px-6 py-4 rounded-xl shadow-2xl animate-in slide-in-from-bottom-4 fade-in flex items-center gap-3 z-50 bg-gradient-to-r from-purple-500 to-indigo-500 text-white">
+          <Trophy className="w-5 h-5" />
+          <span className="font-medium">Level Up! You're now {gamificationData.level.title} 🎊</span>
         </div>
       )}
 
