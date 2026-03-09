@@ -33,7 +33,8 @@ app.use(
         imgSrc: ["'self'", "data:", "https:"],
         connectSrc: [
           "'self'",
-          process.env.CORS_ORIGIN || "http://localhost:5173",
+          "http://localhost:4173",
+          "http://localhost:5173",
         ],
       },
     },
@@ -66,15 +67,22 @@ const authLimiter = rateLimit({
 });
 
 // CORS middleware - Allow all localhost ports for development
-const corsOrigins: string[] = process.env.CORS_ORIGIN
-  ? process.env.CORS_ORIGIN.split(",")
-  : [
-      "http://localhost:5173",
-      "http://localhost:5174",
-      "http://localhost:5175",
-      "http://localhost:5176",
-      "http://localhost:5177",
-    ];
+const defaultOrigins = [
+  "http://localhost:4173",
+  "http://localhost:5173",
+  "http://localhost:5174",
+  "http://localhost:5175",
+  "http://localhost:5176",
+  "http://localhost:5177",
+];
+
+// Only use CORS_ORIGIN if it's properly defined and not a wildcard or invalid
+const corsOrigins: string[] =
+  process.env.CORS_ORIGIN &&
+  process.env.CORS_ORIGIN !== "http://localhost:*" &&
+  !process.env.CORS_ORIGIN.includes("*")
+    ? process.env.CORS_ORIGIN.split(",")
+    : defaultOrigins;
 
 // Default CORS origin to use when no origin header is provided
 const defaultCorsOrigin = corsOrigins[0] || "http://localhost:5173";
@@ -99,8 +107,8 @@ app.use(
         callback(null, origin || true);
       } else {
         // Check if origin matches any pattern (for dynamic origins)
-        const isAllowed = corsOrigins.some(o => 
-          origin?.startsWith(o.replace(/\/$/, '')) || o === '*'
+        const isAllowed = corsOrigins.some(
+          (o) => origin?.startsWith(o.replace(/\/$/, "")) || o === "*",
         );
         if (isAllowed) {
           callback(null, origin);

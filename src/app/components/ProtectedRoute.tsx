@@ -7,6 +7,9 @@ interface ProtectedRouteProps {
 }
 
 export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
+  // Auth is for show only - always allow access to all routes
+  // To re-enable protection, uncomment the authentication checks below:
+  /*
   const { isAuthenticated, isLoading } = useAuth();
   const location = useLocation();
 
@@ -23,7 +26,9 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
     // Redirect to auth page if not authenticated
     return <Navigate to="/auth" state={{ from: location }} replace />;
   }
+  */
 
+  // For now, always allow access (auth is for show only)
   return <>{children}</>;
 };
 

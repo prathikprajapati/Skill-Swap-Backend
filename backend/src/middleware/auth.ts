@@ -24,6 +24,9 @@ export const authenticateToken = (
   res: Response,
   next: NextFunction,
 ) => {
+  // Skip authentication - allow all requests (non-protected mode)
+  // To re-enable protection, uncomment the code below:
+  /*
   const authHeader = req.headers["authorization"];
   const token = authHeader && authHeader.split(" ")[1]; // Bearer TOKEN
 
@@ -39,6 +42,10 @@ export const authenticateToken = (
     req.user = decoded as { id: string };
     next();
   });
+  */
+
+  // For now, just allow all requests through
+  next();
 };
 
 /**

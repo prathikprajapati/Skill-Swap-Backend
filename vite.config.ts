@@ -11,9 +11,14 @@ export default defineConfig({
     tailwindcss(),
   ],
   resolve: {
+    // Dedupe ensures only one copy of React is ever resolved, preventing
+    // the 'Invalid hook call' error that happens with multiple React instances.
+    // Both framer-motion and motion depend on React and must share the same copy.
+    dedupe: ['react', 'react-dom', 'react-router', 'framer-motion', 'motion'],
     alias: {
       // Alias @ to the src directory
       '@': path.resolve(__dirname, './src'),
+      // Force single React instance across all deps
       'react': path.resolve(__dirname, './node_modules/react'),
       'react-dom': path.resolve(__dirname, './node_modules/react-dom'),
     },
@@ -32,7 +37,7 @@ export default defineConfig({
           // React and related libraries
           'react-vendor': ['react', 'react-dom', 'react-router'],
           // Animation libraries
-          'animation': ['motion', 'framer-motion', 'gsap'],
+          'animation': ['motion', 'gsap'],
           // UI components
           'ui': ['@radix-ui/react-dialog', '@radix-ui/react-dropdown-menu', '@radix-ui/react-select'],
           // Icons
@@ -48,8 +53,9 @@ export default defineConfig({
     chunkSizeWarningLimit: 1000,
   },
 
-  // Optimize dependencies
+  // Optimize dependencies - cache already cleared
   optimizeDeps: {
-    include: ['react', 'react-dom', 'react-router'],
+    include: ['react', 'react-dom', 'react-router', 'motion', 'framer-motion'],
   },
 })
+

@@ -41,6 +41,7 @@ function createBeam(width: number, height: number): Beam {
 
 export function BeamsBackground({
     className,
+    children,
     intensity = "strong",
 }: BeamsBackgroundProps) {
     const canvasRef = useRef<HTMLCanvasElement>(null);

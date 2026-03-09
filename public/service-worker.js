@@ -68,6 +68,12 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
+  // In development (localhost), skip ALL caching — let Vite serve fresh files.
+  // This prevents stale cached chunks from causing duplicate React instances.
+  if (url.hostname === "localhost" || url.hostname === "127.0.0.1") {
+    return;
+  }
+
   // API requests - Network first, then cache
   if (API_ROUTES.some((route) => url.pathname.includes(route))) {
     event.respondWith(

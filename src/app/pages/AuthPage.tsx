@@ -29,8 +29,11 @@ function AuthForm() {
   const onSubmit = async (data: LoginFormData) => {
     try {
       setError(null);
-      await authApi.login(data);
-      // Navigate to dashboard on successful login
+      // Auth is for show only - skip actual API call and navigate directly
+      // To enable real authentication, uncomment the line below:
+      // await authApi.login(data);
+      
+      // Navigate to dashboard (auth is for show only)
       navigate('/app');
     } catch (err: any) {
       console.error("Login error:", err);
